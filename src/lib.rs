@@ -53,11 +53,13 @@ impl Plugin for CharacterControllerPlugin {
             .add_systems(
                 Update,
                 (
+                    manage_cursor,
                     keyboard_input,
                     gamepad_input,
                     update_grounded,
                     apply_gravity,
                     movement,
+                    mouse_look,
                     apply_movement_damping,
                 )
                     .chain(),
@@ -78,6 +80,7 @@ impl Plugin for CharacterControllerPlugin {
 pub enum MovementAction {
     Move(Vector2),
     Jump,
+    Look(Vector2),
 }
 
 /// A marker component indicating that an entity is using a character controller.
@@ -111,6 +114,31 @@ pub struct ControllerGravity(pub Vector);
 #[derive(Component)]
 pub struct MaxSlopeAngle(pub Scalar);
 
+/// Mouse sensitivity for look around.
+#[derive(Component)]
+pub struct MouseSensitivity(pub Scalar);
+
+/// Pitch angle for camera (up/down rotation).
+#[derive(Component)]
+pub struct Pitch {
+    pub angle: Scalar,
+    pub max: Scalar,
+}
+
+/// A marker component indicating that an entity is using FPS controls.
+#[derive(Component)]
+pub struct FpsController {
+    pub enable_input: bool,
+}
+
+impl Default for FpsController {
+    fn default() -> Self {
+        Self {
+            enable_input: false,
+        }
+    }
+}
+
 /// A bundle that contains the components needed for a basic
 /// kinematic character controller.
 #[derive(Bundle)]
@@ -130,6 +158,8 @@ pub struct MovementBundle {
     damping: MovementDampingFactor,
     jump_impulse: JumpImpulse,
     max_slope_angle: MaxSlopeAngle,
+    mouse_sensitivity: MouseSensitivity,
+    pitch: Pitch,
 }
 
 impl MovementBundle {
@@ -144,6 +174,11 @@ impl MovementBundle {
             damping: MovementDampingFactor(damping),
             jump_impulse: JumpImpulse(jump_impulse),
             max_slope_angle: MaxSlopeAngle(max_slope_angle),
+            mouse_sensitivity: MouseSensitivity(0.002),
+            pitch: Pitch {
+                angle: 0.0,
+                max: PI * 0.5 - 0.1,
+            },
         }
     }
 }
@@ -192,7 +227,13 @@ impl CharacterControllerBundle {
 fn keyboard_input(
     mut movement_writer: MessageWriter<MovementAction>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut mouse_motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    fps_controllers: Query<&FpsController>,
 ) {
+    // Check if any FPS controller has input enabled
+    let input_enabled = fps_controllers
+        .iter()
+        .any(|controller| controller.enable_input);
     let up = keyboard_input.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]);
     let down = keyboard_input.any_pressed([KeyCode::KeyS, KeyCode::ArrowDown]);
     let left = keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]);
@@ -209,10 +250,32 @@ fn keyboard_input(
     if keyboard_input.just_pressed(KeyCode::Space) {
         movement_writer.write(MovementAction::Jump);
     }
+
+    // Handle mouse look only if input is enabled
+    if input_enabled {
+        for mouse_event in mouse_motion.read() {
+            movement_writer.write(MovementAction::Look(Vector2::new(
+                mouse_event.delta.x as Scalar,
+                mouse_event.delta.y as Scalar,
+            )));
+        }
+    }
 }
 
 /// Sends [`MovementAction`] events based on gamepad input.
-fn gamepad_input(mut movement_writer: MessageWriter<MovementAction>, gamepads: Query<&Gamepad>) {
+fn gamepad_input(
+    mut movement_writer: MessageWriter<MovementAction>,
+    gamepads: Query<&Gamepad>,
+    fps_controllers: Query<&FpsController>,
+) {
+    // Check if any FPS controller has input enabled
+    let input_enabled = fps_controllers
+        .iter()
+        .any(|controller| controller.enable_input);
+
+    if !input_enabled {
+        return;
+    }
     for gamepad in gamepads.iter() {
         if let (Some(x), Some(y)) = (
             gamepad.get(GamepadAxis::LeftStickX),
@@ -225,6 +288,18 @@ fn gamepad_input(mut movement_writer: MessageWriter<MovementAction>, gamepads: Q
 
         if gamepad.just_pressed(GamepadButton::South) {
             movement_writer.write(MovementAction::Jump);
+        }
+
+        // Handle gamepad look input
+        if let (Some(x), Some(y)) = (
+            gamepad.get(GamepadAxis::RightStickX),
+            gamepad.get(GamepadAxis::RightStickY),
+        ) {
+            let look_sensitivity = 2.0;
+            movement_writer.write(MovementAction::Look(Vector2::new(
+                x as Scalar * look_sensitivity,
+                -y as Scalar * look_sensitivity,
+            )));
         }
     }
 }
@@ -264,7 +339,9 @@ fn movement(
         &MovementAcceleration,
         &JumpImpulse,
         &mut LinearVelocity,
+        &Rotation,
         Has<Grounded>,
+        &FpsController,
     )>,
 ) {
     // Precision is adjusted so that the example works with
@@ -272,18 +349,40 @@ fn movement(
     let delta_time = time.delta_secs_f64().adjust_precision();
 
     for event in movement_reader.read() {
-        for (movement_acceleration, jump_impulse, mut linear_velocity, is_grounded) in
-            &mut controllers
+        for (
+            movement_acceleration,
+            jump_impulse,
+            mut linear_velocity,
+            rotation,
+            is_grounded,
+            fps_controller,
+        ) in &mut controllers
         {
+            // Skip processing if input is disabled
+            if !fps_controller.enable_input {
+                continue;
+            }
             match event {
                 MovementAction::Move(direction) => {
-                    linear_velocity.x += direction.x * movement_acceleration.0 * delta_time;
-                    linear_velocity.z -= direction.y * movement_acceleration.0 * delta_time;
+                    // Convert local movement direction to world space based on character rotation
+                    let forward = rotation * Vector::NEG_Z;
+                    let right = rotation * Vector::X;
+
+                    // Calculate movement in world space
+                    let movement_vector = (right * direction.x + forward * direction.y)
+                        * movement_acceleration.0
+                        * delta_time;
+
+                    linear_velocity.x += movement_vector.x;
+                    linear_velocity.z += movement_vector.z;
                 }
                 MovementAction::Jump => {
                     if is_grounded {
                         linear_velocity.y = jump_impulse.0;
                     }
+                }
+                MovementAction::Look(_) => {
+                    // Look actions are handled by the mouse_look system
                 }
             }
         }
@@ -465,6 +564,93 @@ fn kinematic_controller_collisions(
                     linear_velocity.0 -= impulse;
                 }
             }
+        }
+    }
+}
+
+/// Handles mouse look input for character rotation and camera pitch.
+fn mouse_look(
+    mut movement_reader: MessageReader<MovementAction>,
+    mut controllers: Query<
+        (
+            Entity,
+            &MouseSensitivity,
+            &mut Rotation,
+            &mut Pitch,
+            &FpsController,
+        ),
+        With<CharacterController>,
+    >,
+    mut cameras: Query<&mut Transform, (With<Camera3d>, Without<CharacterController>)>,
+    children: Query<&Children>,
+) {
+    for event in movement_reader.read() {
+        if let MovementAction::Look(delta) = event {
+            for (entity, sensitivity, mut rotation, mut pitch, fps_controller) in &mut controllers {
+                // Skip processing if input is disabled
+                if !fps_controller.enable_input {
+                    continue;
+                }
+
+                // Rotate around Y axis (yaw) based on mouse X movement
+                let yaw_delta = -delta.x * sensitivity.0;
+                let yaw_rotation = Quaternion::from_rotation_y(yaw_delta);
+                rotation.0 = yaw_rotation * rotation.0;
+
+                // Update pitch based on mouse Y movement
+                let pitch_delta = -delta.y * sensitivity.0;
+                pitch.angle += pitch_delta;
+                pitch.angle = pitch.angle.clamp(-pitch.max, pitch.max);
+
+                // Apply pitch to camera (if it's a child of the controller)
+                if let Ok(children) = children.get(entity) {
+                    for child in children.iter() {
+                        if let Ok(mut camera_transform) = cameras.get_mut(child) {
+                            camera_transform.rotation = Quaternion::from_rotation_x(pitch.angle);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Manages cursor grab mode and FPS controller input
+/// Right click to grab cursor and enable FPS controls
+/// Escape to release cursor and disable FPS controls
+fn manage_cursor(
+    btn: Res<ButtonInput<MouseButton>>,
+    key: Res<ButtonInput<KeyCode>>,
+    mut cursor_options: Single<&mut bevy::window::CursorOptions>,
+    mut controller_query: Query<&mut FpsController>,
+) {
+    let mut cursor_grabbed = false;
+    let mut cursor_released = false;
+
+    if btn.just_pressed(MouseButton::Right) {
+        cursor_grabbed = true;
+    }
+    if key.just_pressed(KeyCode::Escape) {
+        cursor_released = true;
+    }
+
+    // Update cursor options
+    if cursor_grabbed {
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor_options.visible = false;
+    }
+    if cursor_released {
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+        cursor_options.visible = true;
+    }
+
+    // Update FPS controllers
+    for mut controller in &mut controller_query {
+        if cursor_grabbed {
+            controller.enable_input = true;
+        }
+        if cursor_released {
+            controller.enable_input = false;
         }
     }
 }

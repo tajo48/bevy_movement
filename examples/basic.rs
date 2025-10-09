@@ -41,14 +41,25 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Player
-    commands.spawn((
-        Mesh3d(meshes.add(Capsule3d::new(0.4, 1.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_xyz(0.0, 1.5, 0.0),
-        CharacterControllerBundle::new(Collider::capsule(0.4, 1.0), Vector::NEG_Y * 9.81 * 2.0)
-            .with_movement(30.0, 0.92, 7.0, (30.0 as Scalar).to_radians()),
-    ));
+    // Player character with first-person camera
+    let player_id = commands
+        .spawn((
+            Mesh3d(meshes.add(Capsule3d::new(0.4, 1.0))),
+            MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+            Transform::from_xyz(0.0, 1.5, 0.0),
+            CharacterControllerBundle::new(Collider::capsule(0.4, 1.0), Vector::NEG_Y * 9.81 * 2.0)
+                .with_movement(30.0, 0.92, 7.0, (30.0 as Scalar).to_radians()),
+            FpsController::default(),
+        ))
+        .id();
+
+    // First-person camera attached to player
+    commands.entity(player_id).with_children(|parent| {
+        parent.spawn((
+            Camera3d::default(),
+            Transform::from_xyz(0.0, 0.8, 0.0), // Eye level height
+        ));
+    });
 
     // A cube to move around
     commands.spawn((
@@ -120,20 +131,18 @@ fn setup(
         Transform::from_xyz(0.0, 15.0, 0.0),
     ));
 
-    // Camera
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(-7.0, 9.5, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-
     // Instructions
-    println!("Kinematic Character Controller Example");
+    println!("FPS Character Controller Example");
     println!("Controls:");
     println!("  WASD / Arrow Keys - Move");
+    println!("  Mouse - Look around (after grabbing cursor)");
     println!("  Space - Jump");
+    println!("  Right Click - Grab cursor and enable FPS controls");
+    println!("  Escape - Release cursor and disable FPS controls");
     println!("  Gamepad Left Stick - Move");
+    println!("  Gamepad Right Stick - Look around");
     println!("  Gamepad South Button (A/X) - Jump");
     println!();
-    println!("This uses a kinematic character controller with manual collision handling.");
-    println!("The character should move smoothly and respond to slopes and walls.");
+    println!("This uses a kinematic character controller with first-person camera.");
+    println!("Right-click to grab the cursor and start playing!");
 }
