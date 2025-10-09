@@ -3,10 +3,17 @@ name = "bevy_movement"
 version = "0.1.0"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
-description = "A character controller crate for Bevy using Avian3D physics"
+description = "A kinematic character controller crate for Bevy using Avian3D physics"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/bevy_movement"
-keywords = ["bevy", "physics", "character", "controller", "avian3d"]
+keywords = [
+    "bevy",
+    "physics",
+    "character",
+    "controller",
+    "avian3d",
+    "kinematic",
+]
 categories = ["game-development", "game-engines"]
 
 [dependencies]

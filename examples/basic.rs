@@ -1,12 +1,25 @@
-//! A basic example demonstrating the character controller.
+//! A basic implementation of a character controller for a kinematic rigid body.
 //!
-//! This example shows:
-//! - How to set up a character controller
-//! - First-person movement with WASD/arrow keys
-//! - Mouse look for camera control
-//! - Jumping with spacebar
-//! - Gamepad support
-//! - A simple environment to move around in
+//! This showcases the following:
+//!
+//! - Basic directional movement and jumping
+//! - Support for both keyboard and gamepad input
+//! - A configurable maximum slope angle
+//! - Collision response for kinematic bodies
+//! - Loading a platformer environment from a glTF
+//!
+//! The character controller logic is contained within the `bevy_movement` crate.
+//!
+//! For a dynamic character controller, see the `dynamic_character_3d` example.
+//!
+//! # Warning
+//!
+//! Note that this is *not* intended to be a fully featured character controller,
+//! and the collision logic is quite basic.
+//!
+//! For a better solution, consider implementing a "collide-and-slide" algorithm,
+//! or use an existing third party character controller plugin like Bevy Tnua
+//! (a dynamic character controller).
 
 use avian3d::{math::*, prelude::*};
 use bevy::prelude::*;
@@ -20,7 +33,6 @@ fn main() {
             CharacterControllerPlugin,
         ))
         .add_systems(Startup, setup)
-        .insert_resource(ClearColor(Color::srgb(0.1, 0.1, 0.15)))
         .run();
 }
 
@@ -29,34 +41,23 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Player character with first-person camera
-    let player_id = commands
-        .spawn((
-            Mesh3d(meshes.add(Capsule3d::new(0.4, 1.0))),
-            MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-            Transform::from_xyz(0.0, 1.5, 0.0),
-            CharacterControllerBundle::new(Collider::capsule(0.4, 1.0)).with_movement(
-                30.0,                          // acceleration
-                0.92,                          // damping factor
-                7.0,                           // jump impulse
-                (30.0 as Scalar).to_radians(), // max slope angle
-            ),
-            // Additional physics properties for better character feel
-            Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
-            Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-            GravityScale(2.0),
-            // Add FPS controller for input management
-            FpsController::default(),
-        ))
-        .id();
+    // Player
+    commands.spawn((
+        Mesh3d(meshes.add(Capsule3d::new(0.4, 1.0))),
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+        Transform::from_xyz(0.0, 1.5, 0.0),
+        CharacterControllerBundle::new(Collider::capsule(0.4, 1.0), Vector::NEG_Y * 9.81 * 2.0)
+            .with_movement(30.0, 0.92, 7.0, (30.0 as Scalar).to_radians()),
+    ));
 
-    // First-person camera attached to player
-    commands.entity(player_id).with_children(|parent| {
-        parent.spawn((
-            Camera3d::default(),
-            Transform::from_xyz(0.0, 0.8, 0.0), // Eye level height
-        ));
-    });
+    // A cube to move around
+    commands.spawn((
+        RigidBody::Dynamic,
+        Collider::cuboid(1.0, 1.0, 1.0),
+        Mesh3d(meshes.add(Cuboid::default())),
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+        Transform::from_xyz(3.0, 2.0, 3.0),
+    ));
 
     // Ground plane
     commands.spawn((
@@ -90,15 +91,6 @@ fn setup(
         Transform::from_xyz(-8.0, 1.0, 0.0).with_rotation(Quat::from_rotation_z(0.3)),
     ));
 
-    // A cube to push around
-    commands.spawn((
-        RigidBody::Dynamic,
-        Collider::cuboid(1.0, 1.0, 1.0),
-        Mesh3d(meshes.add(Cuboid::default())),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.4, 0.4))),
-        Transform::from_xyz(3.0, 2.0, 3.0),
-    ));
-
     // Some walls to create boundaries
     let wall_positions = [
         (Vec3::new(0.0, 2.0, 12.0), Vec3::new(20.0, 4.0, 0.5)), // Back wall
@@ -128,14 +120,20 @@ fn setup(
         Transform::from_xyz(0.0, 15.0, 0.0),
     ));
 
+    // Camera
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(-7.0, 9.5, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
     // Instructions
-    println!("First-Person Character Controller Example");
+    println!("Kinematic Character Controller Example");
     println!("Controls:");
     println!("  WASD / Arrow Keys - Move");
-    println!("  Mouse - Look around (cursor is grabbed by default)");
     println!("  Space - Jump");
-    println!("  Right Click - Grab cursor");
-    println!("  Escape - Release cursor");
     println!("  Gamepad Left Stick - Move");
     println!("  Gamepad South Button (A/X) - Jump");
+    println!();
+    println!("This uses a kinematic character controller with manual collision handling.");
+    println!("The character should move smoothly and respond to slopes and walls.");
 }
