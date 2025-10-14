@@ -2,9 +2,9 @@
 name = "bevy_movement"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Piotr Świercz <tajo48@proton.me>"]
 description = "A kinematic character controller crate for Bevy using Avian3D physics"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/yourusername/bevy_movement"
 keywords = [
     "bevy",
