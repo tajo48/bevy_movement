@@ -18,7 +18,7 @@ categories = ["game-development", "game-engines"]
 
 [dependencies]
 avian3d = { git = "https://github.com/Jondolf/avian", branch = "main" }
-bevy = "0.17.1"
+bevy = "0.17.2"
 
 [[example]]
 name = "basic"
